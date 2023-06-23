@@ -8,9 +8,6 @@ import plotly.graph_objs as go
 import numpy as np
 import random
 
-import plotly.graph_objects as go
-import numpy as np
-
 x, r = np.meshgrid(np.arange(-10, 10, 0.05), np.arange(-10, 10, 0.05))
 h = x**3 - r*x
 
@@ -207,4 +204,4 @@ def reset_simulation(n_clicks):
 
 
 if __name__ == "__main__":
-    app.run_server()
+    app.run_server(debug=True)
