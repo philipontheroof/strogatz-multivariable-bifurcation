@@ -1,0 +1,1 @@
+# strogatz-multivariable-bifurcation
