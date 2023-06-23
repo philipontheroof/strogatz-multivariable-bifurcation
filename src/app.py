@@ -1,7 +1,6 @@
 import dash
-from dash import dcc
-from dash import html
-from dash.dependencies import Output, Input, State
+from dash import dcc, html
+from dash.dependencies import Output, Input, State, MATCH, ALL, ClientsideFunction
 import json
 
 import plotly.graph_objs as go
@@ -71,8 +70,8 @@ def rk4_one_step(f, y, t, dt):
 
 
 def func(t, y, r, h):
-    r = r*y - y**3 + h
-    return r
+    R = r*y - y**3 + h
+    return R
 
 
 x_initial = 0.0
@@ -82,126 +81,91 @@ t = t_initial
 dt = 0.05
 n = 5
 
-app = dash.Dash(__name__)
+is_noise_active = False
+
+app = dash.Dash(__name__,
+                meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}])
 server = app.server
 
+
+fx = np.linspace(-5, 5, 100)
+DEfig = go.Figure(data=[go.Scatter(x=[-5, 5], y=[0, 0], mode="lines",
+                                   line=dict(color="black", width=3), showlegend=False),
+                        go.Scatter(x=fx, y=(10*fx - fx**3), mode="lines",
+                                   marker=dict(color="blue"), showlegend=False),
+                        go.Scatter(x=[x], y=[0], mode="markers",
+                                   marker=dict(color="red"), showlegend=False),
+                        ], layout=dict(xaxis=dict(title='position'), yaxis=dict(title='velocity')))
+
 app.layout = html.Div(children=[
-    dcc.Graph(id="live-graph"),
+    html.H1("Strogatz 3.6: Imperfect Bifurcations and Catastrophes",
+            style={"textAlign": "center"}),
 
-    html.Div(children=[html.Button("Reset", id="reset-button", n_clicks=0, style={"margin-right": "10px"}),
-                       html.Button("Add Noise", id="noise-button", n_clicks=0)], style={"margin-bottom": "15px"}),
+    html.Div(
+        children=[
+            html.H3("derivative function and time-varying position",
+                    style={"textAlign": "center"}),
 
-    html.Div(children=[html.Label('r:', style={"margin-right": "5px"}),
-                       dcc.Slider(id='r-slider', min=-10, max=10, value=10, step=0.1,
-                                  marks={i: str(i) for i in range(-10, 11)}),
-                       html.Label(
-                           'h:', style={"margin-top": "15px", "margin-right": "5px"}),
-                       dcc.Slider(id='h-slider', min=-10, max=10, value=0, step=0.1,
-                                  marks={i: str(i) for i in range(-10, 11)}),],
-             style={"margin-bottom": "15px"}),
+            dcc.Graph(id="live-graph", figure=DEfig),
 
-    dcc.Interval(id="graph-update", interval=dt*1000, n_intervals=0),
+            html.Div(children=[html.Div([html.Button("Reset", id="reset-button", n_clicks=0)], style={"display": "inline-block", "margin-right": "10px"}),
+                               html.Div([html.Button(
+                                   "Add Noise", id="noise-button", n_clicks=0)], style={"display": "inline-block", "margin-bottom": "15px"}),
+                               ]),
+            html.Div([
+                html.P("Sliders:", style={"textAlign": "center"}),
+                html.Label('r:', style={"margin-right": "5px"}),
+                dcc.Slider(id='r-slider', min=-10, max=10, value=10, step=0.1, updatemode='drag',
+                           marks={i: str(i) for i in range(-10, 11)}),
+                html.Br(),
+                html.Label(
+                    'h:', style={"margin-top": "15px", "margin-right": "5px"}),
+                dcc.Slider(id='h-slider', min=-10, max=10, value=0, step=0.1, updatemode='drag',
+                           marks={i: str(i) for i in range(-10, 11)}),
+            ], style={"margin-bottom": "15px", "textAlign": "center"}
+            ),
 
-    html.Div(children=[
-        dcc.Graph(figure=fig),
-    ]),
+            dcc.Interval(id="graph-update", interval=dt*1000, n_intervals=0),
+
+            html.Hr(),
+
+            html.H3("bifurcation diagram:", style={
+                    "textAlign": "center"}),
+            html.P("The red surface means stable equilibrium and the blue surface means unstable equilibrium.",
+                   style={"textAlign": "center"}),
+
+            html.Div(children=[
+                dcc.Graph(figure=fig),
+            ]),
+        ],
+        style={"max-width": "70%", "margin": "0 auto"})
 ])
 
-
-@app.callback(
+app.clientside_callback(
+    ClientsideFunction(namespace='clientside',
+                       function_name='update_noise_button_label'),
     Output("noise-button", "children"),
     [Input("noise-button", "n_clicks")],
 )
-def update_noise_button_label(n_clicks):
-    if n_clicks % 2 == 0:
-        return "Add Noise"
-    else:
-        return "Remove Noise"
 
-
-@app.callback(
+app.clientside_callback(
+    ClientsideFunction(namespace='clientside', function_name='update_graph'),
     Output("live-graph", "figure"),
     [
-        Input("graph-update", "n_intervals"),
+        Input('graph-update', 'n_intervals'),
         Input("r-slider", "value"),
         Input("h-slider", "value"),
         Input("noise-button", "n_clicks")
     ],
-    [State("reset-button", "n_clicks")],
-    [State("live-graph", "relayoutData")],
+    [State("reset-button", "n_clicks"), State("live-graph", "figure")],
 )
-def update_graph(interval, r, h, noise_clicks, reset_clicks, relayout_data):
-    global x, t, dt
 
-    def f(t, x): return func(t, x, r, h)
-
-    fx = np.linspace(-5, 5, 100)
-    fy = f(0, fx)
-    for _ in range(n):
-        t, x = rk4_one_step(f, x, t, dt/n)
-
-    if noise_clicks % 2 == 1:
-        x += random.gauss(0, 0.01)
-    else:
-        x = x
-
-    p = go.Scatter(x=[x], y=[0], mode="markers",
-                   marker=dict(color="red"), showlegend=False)
-    v = go.Scatter(x=fx, y=fy, mode="lines",
-                   marker=dict(color="blue"), showlegend=False)
-    zero = go.Scatter(
-        x=fx,
-        y=[0] * len(fx),
-        mode="lines",
-        line=dict(color="black", width=3),
-        showlegend=False,
-    )
-
-    if 'xaxis.range[0]' in relayout_data and 'xaxis.range[1]' in relayout_data:
-        xaxis = dict(
-            range=[
-                relayout_data['xaxis.range[0]'],
-                relayout_data['xaxis.range[1]']
-            ],
-            autorange=False)
-    else:
-        xaxis = dict(autorange=True)
-
-    if 'yaxis.range[0]' in relayout_data and 'yaxis.range[1]' in relayout_data:
-        yaxis = dict(
-            range=[
-                relayout_data['yaxis.range[0]'],
-                relayout_data['yaxis.range[1]']
-            ],
-            autorange=False)
-    else:
-        yaxis = dict(autorange=True)
-
-    xaxis['title'] = 'position'
-    yaxis['title'] = 'velocity'
-
-    layout = dict(
-        title={'text': f't={t:.2f}'},
-        xaxis=xaxis,
-        yaxis=yaxis,
-    )
-
-    return {"data": [zero, v, p], "layout": layout}
-
-
-@app.callback(
+app.clientside_callback(
+    ClientsideFunction(namespace='clientside',
+                       function_name='reset_simulation'),
     Output("reset-button", "n_clicks"),
     [Input("reset-button", "n_clicks")],
 )
-def reset_simulation(n_clicks):
-    global x, t, x_initial, t_initial
-
-    if n_clicks > 0:
-        x = x_initial
-        t = t_initial
-
-    return 0
-
 
 if __name__ == "__main__":
-    app.run_server(debug=True)
+    app.run_server()
